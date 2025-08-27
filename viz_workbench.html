@@ -69,6 +69,7 @@
         <option value="streamlines">Streamlines</option>
         <option value="poincare">Poincaré (lag-1)</option>
         <option value="poincare-ellipse">Poincaré + SD1/SD2 Ellipse</option>
+        <option value="poincare-lag">Poincaré Variable Lag + Lines</option>
         <option disabled>──────────</option>
         <option value="art-pointillism">ART: Pointillism</option>
         <option value="art-ink">ART: Ink Bloom</option>
@@ -160,6 +161,11 @@
       <div class="row slider-group" id="rd-sliders">
         <div><label>RD Feed</label><input id="rdFeed" type="range" min="0.010" max="0.090" step="0.001" value="0.036"></div>
         <div><label>RD Kill</label><input id="rdKill" type="range" min="0.030" max="0.090" step="0.001" value="0.064"></div>
+      </div>
+
+      <div class="row slider-group" id="lag-sliders">
+        <div><label>Poincaré Lag <span id="lagv" class="pill k">2</span></label><input id="poincarelag" type="range" min="1" max="10" step="1" value="2"></div>
+        <div><label><input id="showTimeLines" type="checkbox" checked> Show Time Sequence</label></div>
       </div>
     </div>
 

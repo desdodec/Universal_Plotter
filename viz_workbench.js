@@ -48,7 +48,9 @@
     rdFeed: parseFloat($("#rdFeed").value),
     rdKill: parseFloat($("#rdKill").value),
     dataStart: parseInt($("#dataStart").value,10),
-    dataEnd: parseInt($("#dataEnd").value,10)
+    dataEnd: parseInt($("#dataEnd").value,10),
+    poincarelag: parseInt($("#poincarelag").value,10),
+    showTimeLines: $("#showTimeLines").checked
   }; }
   function updatePills(){ 
     $("#opv").textContent=$("#opacity").value; 
@@ -57,6 +59,7 @@
     $("#dsv").textContent=$("#dataStart").value+"%";
     $("#dev").textContent=$("#dataEnd").value+"%";
     $("#zoomv").textContent=Math.round(zoomState.level * 100)+"%";
+    $("#lagv").textContent=$("#poincarelag").value;
   }
 
   // ---------- Data parsing ----------
@@ -79,6 +82,17 @@
   }
   function toPoincare(rows1D){
     var out=[]; for (var i=0;i<rows1D.length-1;i++){ var a=rows1D[i].v, b=rows1D[i+1].v; if (isFinite(a)&&isFinite(b)) out.push({x:a,y:b,category:null}); }
+    return out;
+  }
+  
+  function toPoincareWithLag(rows1D, lag) {
+    var out = [];
+    for (var i = 0; i < rows1D.length - lag; i++) {
+      var a = rows1D[i].v, b = rows1D[i + lag].v;
+      if (isFinite(a) && isFinite(b)) {
+        out.push({ x: a, y: b, category: null, timeIndex: i });
+      }
+    }
     return out;
   }
   function categories(rows){ var s={}; for (var i=0;i<rows.length;i++){ var c=rows[i].category; if (c!=null) s[String(c)]=1; } return Object.keys(s); }
@@ -234,6 +248,80 @@
         var minv=Math.min(b.xmin,b.ymin), maxv=Math.max(b.xmax,b.ymax);
         gClassic.strokeStyle=C.bg==="white"?"#444":"#aaa"; gClassic.setLineDash([4,4]); gClassic.beginPath();
         gClassic.moveTo(xpix(minv,b,W), ypix(minv,b,H)); gClassic.lineTo(xpix(maxv,b,W), ypix(maxv,b,H)); gClassic.stroke(); gClassic.setLineDash([]);
+      }
+    } else if (C.plotType==="poincare-lag"){
+      // Variable lag Poincaré plot with time-sequenced lines
+      
+      // Check if we have series data to convert
+      var lagData;
+      if (P.series && P.rows.length > 0) {
+        // Convert series data with specified lag
+        lagData = toPoincareWithLag(P.rows, C.poincarelag);
+      } else {
+        // Use existing data but add time indices if not present
+        lagData = rows.slice();
+        for (var ti = 0; ti < lagData.length; ti++) {
+          if (lagData[ti].timeIndex === undefined) {
+            lagData[ti].timeIndex = ti;
+          }
+        }
+      }
+      
+      if (lagData.length === 0) {
+        gClassic.fillStyle = C.bg === "white" ? "#666" : "#ccc";
+        gClassic.font = "14px sans-serif";
+        gClassic.textAlign = "center";
+        gClassic.fillText("Load time series data and click 'Series → Poincaré'", W/2, H/2);
+      } else {
+        var outline3 = C.outline ? (C.bg==="white"?"rgba(0,0,0,0.7)":"rgba(255,255,255,0.7)") : "transparent";
+        gClassic.lineWidth = C.outline ? 1 : 0;
+        
+        // Draw time-sequenced connecting lines first (if enabled)
+        if (C.showTimeLines && lagData.length > 1) {
+          gClassic.strokeStyle = C.bg === "white" ? "rgba(100,100,100,0.3)" : "rgba(200,200,200,0.3)";
+          gClassic.lineWidth = Math.max(0.5, C.pointSize * 0.1);
+          gClassic.beginPath();
+          
+          // Sort by time index to ensure proper sequence
+          var sortedData = lagData.slice().sort(function(a, b) { 
+            return (a.timeIndex || 0) - (b.timeIndex || 0); 
+          });
+          
+          for (var seq = 0; seq < sortedData.length; seq++) {
+            var pt = sortedData[seq];
+            var xps = xpix(pt.x, b, W);
+            var yps = ypix(pt.y, b, H);
+            if (seq === 0) {
+              gClassic.moveTo(xps, yps);
+            } else {
+              gClassic.lineTo(xps, yps);
+            }
+          }
+          gClassic.stroke();
+        }
+        
+        // Draw the data points with color based on time sequence
+        for (var i3 = 0; i3 < lagData.length; i3++) {
+          var r3 = lagData[i3];
+          var xp3 = xpix(r3.x, b, W);
+          var yp3 = ypix(r3.y, b, H);
+          
+          // Color based on time progression
+          var timeProgress = (r3.timeIndex || i3) / (lagData.length - 1);
+          gClassic.fillStyle = colorFor(timeProgress, C.colorscale, C.opacity);
+          gClassic.strokeStyle = outline3;
+          
+          drawShape(gClassic, xp3, yp3, C.pointSize, C.shape, 0, true, !!C.outline);
+        }
+        
+        // Add lag information to legend area
+        if (C.legend) {
+          gClassic.fillStyle = C.bg === "white" ? "#333" : "#ccc";
+          gClassic.font = "12px sans-serif";
+          gClassic.textAlign = "left";
+          gClassic.fillText("Lag: " + C.poincarelag, W - 100, margin.t + 20);
+          gClassic.fillText("Points: " + lagData.length, W - 100, margin.t + 35);
+        }
       }
     } else if (C.plotType==="hist"){
       var xs=rows.map(function(r){return r.x;});
@@ -1493,6 +1581,7 @@
       "streamlines": ["basic-sliders", "grid-sliders"],
       "poincare": ["basic-sliders", "jitter-sliders"],
       "poincare-ellipse": ["basic-sliders", "jitter-sliders"],
+      "poincare-lag": ["basic-sliders", "jitter-sliders", "lag-sliders"],
       "art-pointillism": ["basic-sliders", "jitter-sliders", "art-sliders"],
       "art-ink": ["basic-sliders", "jitter-sliders", "art-sliders"],
       "art-flow": ["basic-sliders", "jitter-sliders", "art-sliders"],
@@ -1503,7 +1592,7 @@
     };
     
     var activeSliders = sliderConfig[plotType] || ["basic-sliders"];
-    var allSliderGroups = ["basic-sliders", "jitter-sliders", "art-sliders", "grid-sliders", "simulation-sliders", "rd-sliders"];
+    var allSliderGroups = ["basic-sliders", "jitter-sliders", "art-sliders", "grid-sliders", "simulation-sliders", "rd-sliders", "lag-sliders"];
     
     // Show/hide slider groups
     allSliderGroups.forEach(function(groupId) {
@@ -1535,6 +1624,7 @@
       "connected": { expand: 0.05 },
       "poincare": { expand: 0.05 },
       "poincare-ellipse": { expand: 0.15 },
+      "poincare-lag": { expand: 0.08 },
       "violin": { expand: 0.2 },
       "ridge": { expand: 0.2 },
       "hist": { expand: 0.1 },
