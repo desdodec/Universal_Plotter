@@ -1678,13 +1678,42 @@
         if (activeSliders.includes(groupId)) {
           group.classList.remove("slider-inactive");
           group.classList.add("slider-active");
+          // console.log("Activated: " + groupId + " for " + plotType);
         } else {
           group.classList.remove("slider-active");
           group.classList.add("slider-inactive");
+          // console.log("Deactivated: " + groupId + " for " + plotType);
         }
+      } else {
+        console.warn("Slider group not found: " + groupId);
       }
     });
   }
+
+  // ---------- Debug function for slider states ----------
+  window.debugSliderStates = function() {
+    var plotType = $("#plotType").value;
+    console.log("Current plot type:", plotType);
+    
+    var allSliderGroups = ["basic-sliders", "jitter-sliders", "art-sliders", "grid-sliders", "simulation-sliders", "rd-sliders", "lag-sliders"];
+    allSliderGroups.forEach(function(groupId) {
+      var group = $("#" + groupId);
+      if (group) {
+        var hasActive = group.classList.contains("slider-active");
+        var hasInactive = group.classList.contains("slider-inactive");
+        var computedStyle = window.getComputedStyle(group);
+        console.log(groupId + ":", {
+          active: hasActive,
+          inactive: hasInactive,
+          opacity: computedStyle.opacity,
+          pointerEvents: computedStyle.pointerEvents,
+          display: computedStyle.display
+        });
+      } else {
+        console.log(groupId + ": NOT FOUND");
+      }
+    });
+  };
 
   // ---------- Pre-calculate visualization bounds ----------
   function preCalculateVisualizationBounds() {

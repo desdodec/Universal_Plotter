@@ -25,9 +25,9 @@
   .muted{color:var(--muted);font-size:12px}
   .pill{display:inline-block;padding:1px 8px;border:1px solid var(--border);border-radius:999px}
   .k{font-variant-numeric:tabular-nums}
-  .slider-inactive{opacity:0.4;pointer-events:none}
-  .slider-active{opacity:1;transition:opacity 0.2s}
   .slider-group{transition:opacity 0.2s}
+  .slider-group.slider-inactive{opacity:0.4;pointer-events:none}
+  .slider-group.slider-active{opacity:1;pointer-events:auto}
 </style>
 </head>
 <body>
@@ -163,18 +163,20 @@
         <div><label>RD Kill</label><input id="rdKill" type="range" min="0.030" max="0.090" step="0.001" value="0.064"></div>
       </div>
 
-      <div class="row slider-group" id="lag-sliders">
-        <div><label>Poincaré Lag <span id="lagv" class="pill k">2</span></label><input id="poincarelag" type="range" min="1" max="10" step="1" value="2"></div>
-        <div><label><input id="showTimeLines" type="checkbox" checked> Show Time Sequence</label></div>
-      </div>
-      <div class="row slider-group" id="lag-sliders">
-        <div><label>Line Width <span id="linewidthv" class="pill k"></span></label><input id="lineWidth" type="range" min="0.1" max="5" step="0.1" value="1"></div>
-        <div><label>Line Color Scheme</label>
-          <select id="lineColorScheme">
-            <option>Viridis</option><option>Plasma</option><option>Turbo</option><option>Cividis</option>
-            <option>Inferno</option><option>Magma</option><option>Bluered</option><option>Rainbow</option>
-            <option>Gray</option><option selected>Single Color</option>
-          </select>
+      <div class="slider-group" id="lag-sliders">
+        <div class="row">
+          <div><label>Poincaré Lag <span id="lagv" class="pill k">2</span></label><input id="poincarelag" type="range" min="1" max="10" step="1" value="2"></div>
+          <div><label><input id="showTimeLines" type="checkbox" checked> Show Time Sequence</label></div>
+        </div>
+        <div class="row">
+          <div><label>Line Width <span id="linewidthv" class="pill k"></span></label><input id="lineWidth" type="range" min="0.1" max="5" step="0.1" value="1"></div>
+          <div><label>Line Color Scheme</label>
+            <select id="lineColorScheme">
+              <option>Viridis</option><option>Plasma</option><option>Turbo</option><option>Cividis</option>
+              <option>Inferno</option><option>Magma</option><option>Bluered</option><option>Rainbow</option>
+              <option>Gray</option><option selected>Single Color</option>
+            </select>
+          </div>
         </div>
       </div>
     </div>
