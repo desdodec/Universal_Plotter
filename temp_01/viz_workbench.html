@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Data Viz Workbench — Artist Edition (Stable Offline)</title>
+<style>
+  :root{--bg:#0b0c10;--panel:#121318;--ink:#e6e6e6;--muted:#9aa0a6;--card:#171821;--border:#262738}
+  *{box-sizing:border-box}
+  body{margin:0;display:grid;grid-template-columns:360px 1fr;grid-template-rows:100vh;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  aside{background:var(--panel);border-right:1px solid var(--border);padding:16px;overflow:auto}
+  main{position:relative}
+  canvas{position:absolute;inset:0}
+  #art{display:none}
+  h1{font-size:16px;margin:0 0 8px}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:14px 0 8px}
+  label{font-size:12px;display:block;margin:6px 0 2px}
+  input[type=range]{width:100%}
+  input,select,button{width:100%;padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--ink)}
+  button{cursor:pointer}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .group{border:1px solid var(--border);padding:10px;border-radius:12px;background:#141522;margin:10px 0}
+  .muted{color:var(--muted);font-size:12px}
+  .pill{display:inline-block;padding:1px 8px;border:1px solid var(--border);border-radius:999px}
+  .k{font-variant-numeric:tabular-nums}
+  .slider-inactive{opacity:0.4;pointer-events:none}
+  .slider-active{opacity:1;transition:opacity 0.2s}
+  .slider-group{transition:opacity 0.2s}
+</style>
+</head>
+<body>
+  <aside>
+    <h1>Data Viz Workbench — Artist Edition</h1>
+    <div class="muted">Classic plots + data-driven art (offline)</div>
+
+    <div class="group">
+      <h2>Data</h2>
+      <label>Load CSV / JSON / TXT (1-col series OK)</label>
+      <input id="file" type="file" accept=".csv,.json,.txt"/>
+      <div class="muted">CSV: x,y,(category?) — JSON: [{"x":..,"y":..,"category":?}] — Series: one number per line</div>
+      <div id="datainfo" class="muted"></div>
+      <div class="row">
+        <button id="useSample">Use Sample</button>
+        <button id="toPoincare">Series → Poincaré</button>
+      </div>
+      <div class="row">
+        <div><label>Data Start <span id="dsv" class="pill k">0%</span></label><input id="dataStart" type="range" min="0" max="100" step="1" value="0"></div>
+        <div><label>Data End <span id="dev" class="pill k">100%</span></label><input id="dataEnd" type="range" min="0" max="100" step="1" value="100"></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>Plot</h2>
+      <label>Type</label>
+      <select id="plotType">
+        <option value="scatter">Scatter (classic)</option>
+        <option value="hist">Histogram (1D)</option>
+        <option value="density">Density Heatmap</option>
+        <option value="poincare">Poincaré (lag-1)</option>
+        <option value="poincare-ellipse">Poincaré + SD1/SD2 Ellipse</option>
+        <option disabled>──────────</option>
+        <option value="art-pointillism">ART: Pointillism</option>
+        <option value="art-ink">ART: Ink Bloom</option>
+        <option value="art-flow">ART: Flow-Field Ribbons</option>
+        <option value="art-metaballs">ART: Metaballs</option>
+        <option value="art-contours">ART: Contour Lines</option>
+        <option value="art-halftone">ART: Halftone</option>
+        <option value="art-rd">ART: Reaction–Diffusion</option>
+      </select>
+
+      <div class="row slider-group" id="basic-sliders">
+        <div><label>Opacity <span id="opv" class="pill k"></span></label><input id="opacity" type="range" min="0.05" max="1" step="0.01" value="0.85"></div>
+        <div><label>Pt Size <span id="psv" class="pill k"></span></label><input id="pointSize" type="range" min="2" max="18" step="1" value="6"></div>
+      </div>
+
+      <div class="row slider-group" id="jitter-sliders">
+        <div><label>Jitter <span id="jtv" class="pill k"></span></label><input id="jitter" type="range" min="0" max="10" step="0.5" value="0"></div>
+        <div><label>Rotation Jitter°</label><input id="rotJitter" type="range" min="0" max="180" step="5" value="0"></div>
+      </div>
+
+      <div class="row">
+        <div><label>Shape</label>
+          <select id="shape">
+            <option value="circle">circle</option><option value="square">square</option>
+            <option value="diamond">diamond</option><option value="triangle">triangle</option>
+          </select>
+        </div>
+        <div><label>Color Scale</label>
+          <select id="colorscale">
+            <option>Viridis</option><option>Plasma</option><option>Turbo</option><option>Cividis</option>
+            <option>Inferno</option><option>Magma</option><option>Bluered</option><option>Rainbow</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div><label>Background</label>
+          <select id="bg"><option value="white">white</option><option value="black">black</option><option value="#0b0c10" selected>dark</option></select>
+        </div>
+        <div><label>Blend Mode (art)</label>
+          <select id="blend"><option>source-over</option><option>lighter</option><option>multiply</option><option>screen</option><option>overlay</option></select>
+        </div>
+      </div>
+
+      <div class="row3">
+        <div><label><input id="outline" type="checkbox"> Outline</label></div>
+        <div><label><input id="equal" type="checkbox" checked> Equal Axes</label></div>
+        <div><label><input id="legend" type="checkbox" checked> Legend</label></div>
+      </div>
+
+      <div class="row slider-group" id="art-sliders">
+        <div><label>Art Intensity</label><input id="artIntensity" type="range" min="0" max="1" step="0.02" value="0.6"></div>
+        <div><label>Art Detail</label><input id="artDetail" type="range" min="1" max="5" step="1" value="3"></div>
+      </div>
+
+      <div class="row slider-group" id="grid-sliders">
+        <div><label>Bandwidth (Contours/Halftone)</label><input id="bandwidth" type="range" min="4" max="40" step="1" value="16"></div>
+        <div><label>Levels (Contours)</label><input id="levels" type="range" min="3" max="15" step="1" value="8"></div>
+      </div>
+
+      <div class="row slider-group" id="simulation-sliders">
+        <div><label>Grid (Contours/Halftone)</label><input id="gridN" type="range" min="80" max="240" step="10" value="160"></div>
+        <div><label>RD Steps</label><input id="rdSteps" type="range" min="30" max="400" step="10" value="150"></div>
+      </div>
+
+      <div class="row slider-group" id="rd-sliders">
+        <div><label>RD Feed</label><input id="rdFeed" type="range" min="0.010" max="0.090" step="0.001" value="0.036"></div>
+        <div><label>RD Kill</label><input id="rdKill" type="range" min="0.030" max="0.090" step="0.001" value="0.064"></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>Export</h2>
+      <div class="row">
+        <button id="exportPNG">PNG</button>
+        <button id="exportHTML">HTML (offline viewer)</button>
+      </div>
+      <div class="row">
+        <button id="exportJSON">Manifest</button>
+        <button id="saveState">Save Settings</button>
+      </div>
+      <div class="muted">PNG exports the visible canvas (Classic or ART). HTML viewer is offline.</div>
+    </div>
+  </aside>
+
+  <main>
+    <canvas id="classic"></canvas>
+    <canvas id="art"></canvas>
+  </main>
+
+<script src="viz_workbench.js"></script>
+</body>
+</html>

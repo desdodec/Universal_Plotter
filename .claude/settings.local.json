@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(node:*)",
+      "Bash(start http://localhost:8000/viz_workbench.html)",
+      "Bash(start http://localhost:8000/test_simulator.html)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
