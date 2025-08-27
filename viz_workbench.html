@@ -167,6 +167,16 @@
         <div><label>Poincaré Lag <span id="lagv" class="pill k">2</span></label><input id="poincarelag" type="range" min="1" max="10" step="1" value="2"></div>
         <div><label><input id="showTimeLines" type="checkbox" checked> Show Time Sequence</label></div>
       </div>
+      <div class="row slider-group" id="lag-sliders">
+        <div><label>Line Width <span id="linewidthv" class="pill k"></span></label><input id="lineWidth" type="range" min="0.1" max="5" step="0.1" value="1"></div>
+        <div><label>Line Color Scheme</label>
+          <select id="lineColorScheme">
+            <option>Viridis</option><option>Plasma</option><option>Turbo</option><option>Cividis</option>
+            <option>Inferno</option><option>Magma</option><option>Bluered</option><option>Rainbow</option>
+            <option>Gray</option><option selected>Single Color</option>
+          </select>
+        </div>
+      </div>
     </div>
 
     <div class="group">

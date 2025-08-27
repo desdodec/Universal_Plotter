@@ -22,6 +22,22 @@
     if (scale==="Rainbow"){ var t=v*6,i=Math.floor(t),f=t-i,r=(i===0||i===5)?1:(i===1?1-f:0),g=(i===1||i===2)?1:(i===0?f:(i===3?1-f:0)),b=(i===3||i===4)?1:(i===2?f:(i===5?1-f:0)); return "rgba(" + Math.floor(r*255) + "," + Math.floor(g*255) + "," + Math.floor(b*255) + "," + a + ")"; }
     var rr=68+187*v, gg=1+212*v, bb=84+131*v; return "rgba(" + Math.floor(rr) + "," + Math.floor(gg) + "," + Math.floor(bb) + "," + a + ")";
   }
+  
+  function lineColorFor(val, scheme, alpha, bgColor) {
+    var a = (alpha == null) ? 1 : alpha;
+    var v = clamp(val, 0, 1);
+    
+    if (scheme === "Single Color") {
+      return bgColor === "white" ? "rgba(100,100,100," + a + ")" : "rgba(200,200,200," + a + ")";
+    }
+    if (scheme === "Gray") {
+      var gray = Math.floor(50 + 150 * v);
+      return "rgba(" + gray + "," + gray + "," + gray + "," + a + ")";
+    }
+    
+    // Use existing colorFor function for other schemes
+    return colorFor(v, scheme, a);
+  }
 
   // ---------- Controls ----------
   function cfg(){ return {
@@ -50,7 +66,9 @@
     dataStart: parseInt($("#dataStart").value,10),
     dataEnd: parseInt($("#dataEnd").value,10),
     poincarelag: parseInt($("#poincarelag").value,10),
-    showTimeLines: $("#showTimeLines").checked
+    showTimeLines: $("#showTimeLines").checked,
+    lineWidth: parseFloat($("#lineWidth").value),
+    lineColorScheme: $("#lineColorScheme").value
   }; }
   function updatePills(){ 
     $("#opv").textContent=$("#opacity").value; 
@@ -60,6 +78,7 @@
     $("#dev").textContent=$("#dataEnd").value+"%";
     $("#zoomv").textContent=Math.round(zoomState.level * 100)+"%";
     $("#lagv").textContent=$("#poincarelag").value;
+    $("#linewidthv").textContent=$("#lineWidth").value;
   }
 
   // ---------- Data parsing ----------
@@ -203,7 +222,18 @@
     if (!rows.length) return rows;
     var startIdx = Math.floor((C.dataStart / 100) * rows.length);
     var endIdx = Math.floor((C.dataEnd / 100) * rows.length);
-    return rows.slice(startIdx, Math.max(startIdx + 1, endIdx));
+    
+    // Handle edge case where dataEnd = 0% should show no data
+    if (C.dataEnd === 0) {
+      return [];
+    }
+    
+    // Handle case where startIdx >= endIdx  
+    if (startIdx >= endIdx) {
+      return [];
+    }
+    
+    return rows.slice(startIdx, endIdx);
   }
 
   function drawClassic(){
@@ -252,12 +282,26 @@
     } else if (C.plotType==="poincare-lag"){
       // Variable lag Poincaré plot with time-sequenced lines
       
-      // Check if we have series data to convert
+      // Always regenerate lag data from original series if available
       var lagData;
-      if (P.series && P.rows.length > 0) {
-        // Convert series data with specified lag
-        lagData = toPoincareWithLag(P.rows, C.poincarelag);
-      } else {
+      var originalSeries = P.series ? P.rows : null;
+      
+      // Check if we need to get original series data from non-Poincaré data
+      if (!originalSeries && P.source && P.source.indexOf(',') === -1) {
+        // Try to parse as single column data
+        var lines = P.source.trim().split(/\r?\n/);
+        var seriesData = [];
+        for (var li = 1; li < lines.length; li++) { // Skip header
+          var val = parseFloat(lines[li].trim());
+          if (isFinite(val)) seriesData.push({v: val});
+        }
+        if (seriesData.length > 0) originalSeries = seriesData;
+      }
+      
+      if (originalSeries && originalSeries.length > C.poincarelag) {
+        // Always regenerate with current lag setting
+        lagData = toPoincareWithLag(originalSeries, C.poincarelag);
+      } else if (rows.length > 0) {
         // Use existing data but add time indices if not present
         lagData = rows.slice();
         for (var ti = 0; ti < lagData.length; ti++) {
@@ -265,49 +309,69 @@
             lagData[ti].timeIndex = ti;
           }
         }
+      } else {
+        lagData = [];
       }
       
       if (lagData.length === 0) {
         gClassic.fillStyle = C.bg === "white" ? "#666" : "#ccc";
         gClassic.font = "14px sans-serif";
         gClassic.textAlign = "center";
-        gClassic.fillText("Load time series data and click 'Series → Poincaré'", W/2, H/2);
+        gClassic.fillText("Load time series data and use 'Series → Poincaré'", W/2, H/2 - 10);
+        gClassic.fillText("or switch to a lag-compatible dataset", W/2, H/2 + 10);
       } else {
         var outline3 = C.outline ? (C.bg==="white"?"rgba(0,0,0,0.7)":"rgba(255,255,255,0.7)") : "transparent";
-        gClassic.lineWidth = C.outline ? 1 : 0;
         
         // Draw time-sequenced connecting lines first (if enabled)
         if (C.showTimeLines && lagData.length > 1) {
-          gClassic.strokeStyle = C.bg === "white" ? "rgba(100,100,100,0.3)" : "rgba(200,200,200,0.3)";
-          gClassic.lineWidth = Math.max(0.5, C.pointSize * 0.1);
-          gClassic.beginPath();
+          // Use custom line width and color scheme for lines
+          gClassic.lineWidth = C.lineWidth;
           
           // Sort by time index to ensure proper sequence
           var sortedData = lagData.slice().sort(function(a, b) { 
             return (a.timeIndex || 0) - (b.timeIndex || 0); 
           });
           
-          for (var seq = 0; seq < sortedData.length; seq++) {
-            var pt = sortedData[seq];
-            var xps = xpix(pt.x, b, W);
-            var yps = ypix(pt.y, b, H);
-            if (seq === 0) {
-              gClassic.moveTo(xps, yps);
-            } else {
-              gClassic.lineTo(xps, yps);
+          // Draw line segments with color progression if not single color
+          if (C.lineColorScheme === "Single Color") {
+            gClassic.strokeStyle = lineColorFor(0, C.lineColorScheme, 0.7, C.bg);
+            gClassic.beginPath();
+            for (var seq = 0; seq < sortedData.length; seq++) {
+              var pt = sortedData[seq];
+              var xps = xpix(pt.x, b, W);
+              var yps = ypix(pt.y, b, H);
+              if (seq === 0) {
+                gClassic.moveTo(xps, yps);
+              } else {
+                gClassic.lineTo(xps, yps);
+              }
+            }
+            gClassic.stroke();
+          } else {
+            // Draw colored line segments
+            for (var seq = 0; seq < sortedData.length - 1; seq++) {
+              var pt1 = sortedData[seq];
+              var pt2 = sortedData[seq + 1];
+              var lineProgress = seq / (sortedData.length - 2);
+              
+              gClassic.strokeStyle = lineColorFor(lineProgress, C.lineColorScheme, 0.8, C.bg);
+              gClassic.beginPath();
+              gClassic.moveTo(xpix(pt1.x, b, W), ypix(pt1.y, b, H));
+              gClassic.lineTo(xpix(pt2.x, b, W), ypix(pt2.y, b, H));
+              gClassic.stroke();
             }
           }
-          gClassic.stroke();
         }
         
         // Draw the data points with color based on time sequence
+        gClassic.lineWidth = C.outline ? 1 : 0;
         for (var i3 = 0; i3 < lagData.length; i3++) {
           var r3 = lagData[i3];
           var xp3 = xpix(r3.x, b, W);
           var yp3 = ypix(r3.y, b, H);
           
           // Color based on time progression
-          var timeProgress = (r3.timeIndex || i3) / (lagData.length - 1);
+          var timeProgress = (r3.timeIndex || i3) / Math.max(1, lagData.length - 1);
           gClassic.fillStyle = colorFor(timeProgress, C.colorscale, C.opacity);
           gClassic.strokeStyle = outline3;
           
@@ -321,6 +385,9 @@
           gClassic.textAlign = "left";
           gClassic.fillText("Lag: " + C.poincarelag, W - 100, margin.t + 20);
           gClassic.fillText("Points: " + lagData.length, W - 100, margin.t + 35);
+          if (originalSeries) {
+            gClassic.fillText("Series: " + originalSeries.length, W - 100, margin.t + 50);
+          }
         }
       }
     } else if (C.plotType==="hist"){
@@ -946,32 +1013,41 @@
       }
     } else if (C.plotType==="contour"){
       // Scientific contour plot
-      var GN = Math.floor(30 + C.gridN * 0.3);
-      var sigma = Math.max(1, C.bandwidth * 0.5);
-      var grid = new Float32Array(GN * GN);
       
-      // Build density grid
-      function splat(px, py) {
-        var r = Math.max(1, Math.floor(3 * sigma));
-        var x0 = Math.max(0, px - r), x1 = Math.min(GN - 1, px + r);
-        var y0 = Math.max(0, py - r), y1 = Math.min(GN - 1, py + r);
-        var two = 2 * sigma * sigma;
+      // Check if we have any filtered data
+      if (rows.length === 0) {
+        gClassic.fillStyle = C.bg === "white" ? "#666" : "#ccc";
+        gClassic.font = "16px sans-serif";
+        gClassic.textAlign = "center";
+        gClassic.fillText("No data points to contour", W/2, H/2);
+        gClassic.fillText("(check data range filters)", W/2, H/2 + 20);
+      } else {
+        var GN = Math.floor(30 + C.gridN * 0.3);
+        var sigma = Math.max(1, C.bandwidth * 0.5);
+        var grid = new Float32Array(GN * GN);
         
-        for (var yy = y0; yy <= y1; yy++) {
-          for (var xx = x0; xx <= x1; xx++) {
-            var dx = xx - px, dy = yy - py;
-            grid[yy * GN + xx] += Math.exp(-(dx * dx + dy * dy) / two);
+        // Build density grid
+        function splat(px, py) {
+          var r = Math.max(1, Math.floor(3 * sigma));
+          var x0 = Math.max(0, px - r), x1 = Math.min(GN - 1, px + r);
+          var y0 = Math.max(0, py - r), y1 = Math.min(GN - 1, py + r);
+          var two = 2 * sigma * sigma;
+          
+          for (var yy = y0; yy <= y1; yy++) {
+            for (var xx = x0; xx <= x1; xx++) {
+              var dx = xx - px, dy = yy - py;
+              grid[yy * GN + xx] += Math.exp(-(dx * dx + dy * dy) / two);
+            }
           }
         }
-      }
-      
-      for (var i = 0; i < rows.length; i++) {
-        var u = (rows[i].x - b.xmin) / (b.xmax - b.xmin + 1e-9);
-        var v = (rows[i].y - b.ymin) / (b.ymax - b.ymin + 1e-9);
-        var gx = Math.floor(u * (GN - 1));
-        var gy = Math.floor((1 - v) * (GN - 1));
-        if (isFinite(gx) && isFinite(gy)) splat(gx, gy);
-      }
+        
+        for (var i = 0; i < rows.length; i++) {
+          var u = (rows[i].x - b.xmin) / (b.xmax - b.xmin + 1e-9);
+          var v = (rows[i].y - b.ymin) / (b.ymax - b.ymin + 1e-9);
+          var gx = Math.floor(u * (GN - 1));
+          var gy = Math.floor((1 - v) * (GN - 1));
+          if (isFinite(gx) && isFinite(gy)) splat(gx, gy);
+        }
       
       // Normalize
       var mx = 0;
@@ -1047,6 +1123,7 @@
           gClassic.arc(xp, yp, C.pointSize * 0.3, 0, 6.283);
           gClassic.fill();
         }
+      }
       }
     } else if (C.plotType==="density"){
       var GN=clamp(C.gridN,40,240), sigma=Math.max(1,C.bandwidth*0.5);
