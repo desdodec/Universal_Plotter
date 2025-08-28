@@ -39,6 +39,53 @@
     return colorFor(v, scheme, a);
   }
 
+  // Enhanced color mapping functions for artistic plots
+  function hashColorFor(str, scale, alpha) {
+    // Generate consistent color from string hash
+    var hash = 0;
+    for (var i = 0; i < str.length; i++) {
+      hash = ((hash << 5) - hash + str.charCodeAt(i)) & 0xffffffff;
+    }
+    var normalized = Math.abs(hash) / 0xffffffff;
+    return colorFor(normalized, scale, alpha);
+  }
+
+  function statisticalColorFor(data, currentValue, scale, alpha) {
+    if (data.length === 0) return colorFor(0, scale, alpha);
+    
+    var mean = data.reduce(function(a, b) { return a + b; }, 0) / data.length;
+    var variance = data.reduce(function(a, b) { return a + (b - mean) * (b - mean); }, 0) / data.length;
+    var stdDev = Math.sqrt(variance);
+    
+    // Color based on how many standard deviations from mean
+    var zScore = stdDev > 0 ? Math.abs(currentValue - mean) / stdDev : 0;
+    var colorVal = Math.min(zScore / 3, 1); // Cap at 3 standard deviations
+    
+    return colorFor(colorVal, scale, alpha);
+  }
+
+  function quantileColorFor(data, currentValue, scale, alpha) {
+    if (data.length === 0) return colorFor(0, scale, alpha);
+    
+    var sorted = data.slice().sort(function(a, b) { return a - b; });
+    var rank = 0;
+    for (var i = 0; i < sorted.length; i++) {
+      if (sorted[i] <= currentValue) rank = i + 1;
+      else break;
+    }
+    var quantile = rank / sorted.length;
+    return colorFor(quantile, scale, alpha);
+  }
+
+  function gradientColorFor(position, total, scale, alpha, variation) {
+    // Add some mathematical variation for more interesting gradients
+    var base = position / Math.max(1, total - 1);
+    var wave = variation ? Math.sin(position * 0.5) * 0.1 : 0;
+    var spiral = variation ? (position % 7) * 0.02 : 0;
+    var final = clamp(base + wave + spiral, 0, 1);
+    return colorFor(final, scale, alpha);
+  }
+
   // ---------- Controls ----------
   function cfg(){ return {
     plotType: $("#plotType").value,
@@ -396,10 +443,43 @@
       for (var j=0;j<xs.length;j++){ var idx=Math.floor((xs[j]-minx)/step); idx=clamp(idx,0,nb-1); bins[idx]++; }
       var maxc=1; for (j=0;j<nb;j++) if (bins[j]>maxc) maxc=bins[j];
       gClassic.globalAlpha=clamp(C.opacity,0.05,1);
+      
+      // Enhanced histogram coloring with frequency-based rainbow/gradient
       for (bi=0;bi<nb;bi++){
         var x0=minx+bi*step, x1=x0+step, X0=xpix(x0,b,W), X1=xpix(x1,b,W);
         var barH=(bins[bi]/maxc)*(H-margin.t-margin.b);
-        gClassic.fillStyle="#6aa9ff"; gClassic.fillRect(X0, H-margin.b-barH, Math.max(1,(X1-X0)-1), barH);
+        
+        // Create dynamic coloring based on multiple factors
+        var frequency = bins[bi] / maxc; // Relative frequency (0-1)
+        var position = bi / (nb - 1); // Position along x-axis (0-1)
+        var binCenter = x0 + step * 0.5; // Center value of this bin
+        
+        // Combine multiple color factors for richer visualization
+        var histogramColor;
+        
+        // Method 1: Frequency-dominant with position accent
+        var freqColor = frequency * 0.7 + position * 0.2;
+        
+        // Method 2: Add data-value-based variation
+        var dataRange = maxx - minx;
+        var normalizedBinCenter = dataRange > 0 ? (binCenter - minx) / dataRange : 0.5;
+        
+        // Method 3: Create wave pattern for artistic effect
+        var waveEffect = Math.sin(bi * 0.3) * 0.1;
+        
+        // Combine all factors
+        var finalColorVal = clamp(freqColor + normalizedBinCenter * 0.1 + waveEffect, 0, 1);
+        
+        // Special handling for empty bins (very low opacity)
+        if (bins[bi] === 0) {
+          histogramColor = colorFor(position, C.colorscale, 0.1);
+        } else {
+          // Use enhanced coloring for non-empty bins
+          histogramColor = colorFor(finalColorVal, C.colorscale, clamp(C.opacity * (0.3 + 0.7 * frequency), 0.1, 1));
+        }
+        
+        gClassic.fillStyle = histogramColor;
+        gClassic.fillRect(X0, H-margin.b-barH, Math.max(1,(X1-X0)-1), barH);
       }
       gClassic.globalAlpha=1;
     } else if (C.plotType==="bubble"){
@@ -670,8 +750,36 @@
             }
           }
           
-          // Draw violin shape
-          gClassic.fillStyle = colorFor(k / Math.max(1, ls.length-1), C.colorscale, C.opacity);
+          // Draw violin shape with enhanced coloring
+          var violinColor;
+          var allData = rows.map(function(r) { return r.y; }); // Get all y values for statistical comparison
+          
+          // Choose coloring method based on data characteristics
+          if (ls.length > 1) {
+            // Multi-category: use combination of statistical properties and category info
+            var mean = categoryData.reduce(function(a, b) { return a + b; }, 0) / categoryData.length;
+            var categoryName = ls[k];
+            
+            // Blend statistical coloring with category hash for uniqueness
+            var statColor = statisticalColorFor(allData, mean, C.colorscale, 0.7);
+            var hashColor = hashColorFor(categoryName + k, C.colorscale, 0.3);
+            
+            // Use the statistical color as primary with hash-based variation
+            var baseColorVal = (mean - Math.min.apply(null, allData)) / 
+                              (Math.max.apply(null, allData) - Math.min.apply(null, allData) + 1e-9);
+            var hashVariation = (Math.abs(categoryName.length * 17 + k * 23) % 100) / 100 * 0.3;
+            var finalColorVal = clamp(baseColorVal + hashVariation, 0, 1);
+            
+            violinColor = colorFor(finalColorVal, C.colorscale, C.opacity);
+          } else {
+            // Single category: use gradient based on data spread
+            var dataRange = Math.max.apply(null, categoryData) - Math.min.apply(null, categoryData);
+            var globalRange = Math.max.apply(null, allData) - Math.min.apply(null, allData);
+            var spreadRatio = globalRange > 0 ? dataRange / globalRange : 0.5;
+            violinColor = colorFor(spreadRatio, C.colorscale, C.opacity);
+          }
+          
+          gClassic.fillStyle = violinColor;
           gClassic.strokeStyle = C.outline ? (C.bg==="white" ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)") : "transparent";
           gClassic.lineWidth = 1;
           
@@ -712,14 +820,43 @@
     } else if (C.plotType==="ridge"){
       // Ridge plot (stacked density curves)
       var ls=cats(rows);
+      
+      // If only one category, artificially create multiple ridges by splitting data into quantile ranges
+      var artificialRidges = false;
+      if (ls.length === 1 && ls[0] === "_") {
+        artificialRidges = true;
+        // Split single-category data into 4 ridges based on value ranges
+        var allValues = rows.map(function(r) { return r.x; }).sort(function(a,b) { return a - b; });
+        var numRidges = 4;
+        ls = [];
+        for (var qi = 0; qi < numRidges; qi++) {
+          ls.push("Range " + (qi + 1));
+        }
+      }
+      
       var ridgeHeight = (H - margin.t - margin.b) / Math.max(1, ls.length) * 0.8;
       
       for (var k=0; k<ls.length; k++) {
         var categoryData = [];
-        for (var i=0; i<rows.length; i++) {
-          var r = rows[i];
-          var rc = (r.category==null ? "_" : String(r.category));
-          if (rc === ls[k]) categoryData.push(r.x);
+        
+        if (artificialRidges) {
+          // Split data into quantile-based ridges for visual variety
+          var allValues = rows.map(function(r) { return r.x; }).sort(function(a,b) { return a - b; });
+          var numRidges = ls.length;
+          var ridgeSize = Math.floor(allValues.length / numRidges);
+          var startIdx = k * ridgeSize;
+          var endIdx = (k === numRidges - 1) ? allValues.length : (k + 1) * ridgeSize;
+          
+          for (var idx = startIdx; idx < endIdx; idx++) {
+            categoryData.push(allValues[idx]);
+          }
+        } else {
+          // Normal category-based ridge creation
+          for (var i=0; i<rows.length; i++) {
+            var r = rows[i];
+            var rc = (r.category==null ? "_" : String(r.category));
+            if (rc === ls[k]) categoryData.push(r.x);
+          }
         }
         
         if (categoryData.length > 2) {
@@ -731,9 +868,24 @@
           
           // Create smooth density curve using kernel density estimation
           var points = Math.floor(50 + C.gridN * 0.5);
-          var bandwidth = (maxX - minX) / 20 * (C.bandwidth / 16);
+          var bandwidthParam = isNaN(C.bandwidth) ? 16 : C.bandwidth; // Fallback to 16 if undefined
+          var bandwidth = (maxX - minX) / 20 * (bandwidthParam / 16);
           
-          gClassic.fillStyle = colorFor(k / Math.max(1, ls.length-1), C.colorscale, C.opacity);
+          // Enhanced ridge plot coloring - ensure each ridge gets a different color
+          var colorVal = k / Math.max(1, ls.length - 1);
+          
+          // If only one category, create artificial spread by using k directly
+          if (ls.length <= 1) {
+            colorVal = k * 0.2; // Each additional ridge shifts by 0.2 in color space
+          }
+          
+          // Ensure we cycle through the full color range even with few categories
+          if (ls.length < 5) {
+            colorVal = (k / 5); // Spread over 5 color positions regardless
+          }
+          
+          var ridgeColor = colorFor(colorVal, C.colorscale, C.opacity);
+          gClassic.fillStyle = ridgeColor;
           gClassic.strokeStyle = C.outline ? (C.bg==="white" ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)") : "transparent";
           gClassic.lineWidth = 1;
           
@@ -814,7 +966,26 @@
             var x = margin.l + i * cellW;
             var y = margin.t + j * cellH;
             
-            gClassic.fillStyle = colorFor(intensity, C.colorscale, C.opacity * intensity);
+            // Enhanced 2D histogram coloring with spatial and frequency information
+            var xPos = i / (nBinsX - 1); // Normalized x position (0-1)
+            var yPos = j / (nBinsY - 1); // Normalized y position (0-1)
+            
+            // Create artistic color variation based on position and density
+            var spatialColor = (xPos + yPos) * 0.5; // Diagonal gradient base
+            var checkerboard = ((i + j) % 2) * 0.05; // Subtle checkerboard pattern
+            var radialDistance = Math.sqrt(Math.pow(xPos - 0.5, 2) + Math.pow(yPos - 0.5, 2));
+            var radialEffect = radialDistance * 0.1; // Radial color variation
+            
+            // Combine multiple color factors
+            var combinedColorVal = clamp(
+              intensity * 0.6 + // Primary: density-based
+              spatialColor * 0.2 + // Secondary: position-based
+              checkerboard + // Tertiary: pattern-based
+              radialEffect, // Quaternary: radial variation
+              0, 1
+            );
+            
+            gClassic.fillStyle = colorFor(combinedColorVal, C.colorscale, C.opacity * intensity);
             gClassic.fillRect(x, y, cellW, cellH);
             
             if (C.outline && intensity > 0.1) {
@@ -1690,6 +1861,250 @@
     });
   }
 
+  // ---------- SVG Export Function ----------
+  function exportToSVG() {
+    var C = cfg();
+    var s = cssSize();
+    var W = s.w, H = s.h;
+    
+    if (!P.rows.length) {
+      alert("No data to export");
+      return;
+    }
+    
+    var rows = filterData(P.rows.slice(0), C);
+    if (!rows.length) {
+      alert("No data in current filter range");
+      return;
+    }
+    
+    var b = getOptimizedBounds(C.plotType, C.equal);
+    
+    // Create SVG namespace
+    var svgNS = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("width", W);
+    svg.setAttribute("height", H);
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.setAttribute("xmlns", svgNS);
+    
+    // Background
+    var bg = document.createElementNS(svgNS, "rect");
+    bg.setAttribute("width", "100%");
+    bg.setAttribute("height", "100%");
+    bg.setAttribute("fill", C.bg);
+    svg.appendChild(bg);
+    
+    // Only support basic plot types for SVG export
+    if (C.plotType === "scatter" || C.plotType === "poincare") {
+      exportScatterToSVG(svg, rows, b, W, H, C, svgNS);
+    } else if (C.plotType === "bubble") {
+      exportBubbleToSVG(svg, rows, b, W, H, C, svgNS);
+    } else if (C.plotType === "connected") {
+      exportConnectedToSVG(svg, rows, b, W, H, C, svgNS);
+    } else if (C.plotType === "hist") {
+      exportHistToSVG(svg, rows, b, W, H, C, svgNS);
+    } else {
+      alert("SVG export not supported for " + C.plotType + ". Try PNG export instead.");
+      return;
+    }
+    
+    // Add axes if enabled
+    if (C.axes) {
+      addAxesToSVG(svg, b, W, H, C.bg, C, svgNS);
+    }
+    
+    // Add frame if enabled
+    if (C.frame) {
+      var frame = document.createElementNS(svgNS, "rect");
+      frame.setAttribute("x", "1");
+      frame.setAttribute("y", "1");
+      frame.setAttribute("width", W - 2);
+      frame.setAttribute("height", H - 2);
+      frame.setAttribute("fill", "none");
+      frame.setAttribute("stroke", C.bg === "white" ? "#000" : "#fff");
+      frame.setAttribute("stroke-width", "2");
+      svg.appendChild(frame);
+    }
+    
+    // Convert SVG to blob and download
+    var svgData = new XMLSerializer().serializeToString(svg);
+    var svgBlob = new Blob([svgData], {type: "image/svg+xml;charset=utf-8"});
+    var svgUrl = URL.createObjectURL(svgBlob);
+    
+    var link = document.createElement('a');
+    link.download = `viz-${C.plotType}-${Date.now()}.svg`;
+    link.href = svgUrl;
+    link.click();
+    
+    URL.revokeObjectURL(svgUrl);
+  }
+  
+  function exportScatterToSVG(svg, rows, b, W, H, C, svgNS) {
+    var ls = cats(rows);
+    var outline = C.outline ? (C.bg === "white" ? "#000" : "#fff") : "none";
+    
+    for (var k = 0; k < ls.length; k++) {
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        var rc = (r.category == null ? "_" : String(r.category));
+        if (rc !== ls[k]) continue;
+        
+        var xp = xpix(r.x + (C.jitter ? (Math.random() - 0.5) * C.jitter : 0), b, W);
+        var yp = ypix(r.y + (C.jitter ? (Math.random() - 0.5) * C.jitter : 0), b, H);
+        var v = (r.x - b.xmin) / (b.xmax - b.xmin + 1e-9);
+        
+        var circle = document.createElementNS(svgNS, "circle");
+        circle.setAttribute("cx", xp);
+        circle.setAttribute("cy", yp);
+        circle.setAttribute("r", C.pointSize);
+        circle.setAttribute("fill", colorFor(v, C.colorscale, C.opacity));
+        if (outline !== "none") {
+          circle.setAttribute("stroke", outline);
+          circle.setAttribute("stroke-width", "1");
+        }
+        svg.appendChild(circle);
+      }
+    }
+  }
+  
+  function exportBubbleToSVG(svg, rows, b, W, H, C, svgNS) {
+    var ls = cats(rows);
+    var outline = C.outline ? (C.bg === "white" ? "#000" : "#fff") : "none";
+    
+    // Calculate size range
+    var maxDist = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var dist = Math.sqrt(rows[i].x * rows[i].x + rows[i].y * rows[i].y);
+      if (dist > maxDist) maxDist = dist;
+    }
+    
+    for (var k = 0; k < ls.length; k++) {
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        var rc = (r.category == null ? "_" : String(r.category));
+        if (rc !== ls[k]) continue;
+        
+        var xp = xpix(r.x + (C.jitter ? (Math.random() - 0.5) * C.jitter : 0), b, W);
+        var yp = ypix(r.y + (C.jitter ? (Math.random() - 0.5) * C.jitter : 0), b, H);
+        var dist = Math.sqrt(r.x * r.x + r.y * r.y);
+        var normalizedSize = dist / (maxDist || 1);
+        var bubbleSize = C.pointSize * (0.8 + normalizedSize * 2);
+        var v = (r.x - b.xmin) / (b.xmax - b.xmin + 1e-9);
+        
+        var circle = document.createElementNS(svgNS, "circle");
+        circle.setAttribute("cx", xp);
+        circle.setAttribute("cy", yp);
+        circle.setAttribute("r", bubbleSize);
+        circle.setAttribute("fill", colorFor(v, C.colorscale, C.opacity));
+        if (outline !== "none") {
+          circle.setAttribute("stroke", outline);
+          circle.setAttribute("stroke-width", "1");
+        }
+        svg.appendChild(circle);
+      }
+    }
+  }
+  
+  function exportConnectedToSVG(svg, rows, b, W, H, C, svgNS) {
+    var ls = cats(rows);
+    
+    for (var k = 0; k < ls.length; k++) {
+      var categoryRows = [];
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        var rc = (r.category == null ? "_" : String(r.category));
+        if (rc === ls[k]) categoryRows.push(r);
+      }
+      
+      categoryRows.sort(function(a, b) { return a.x - b.x; });
+      
+      if (categoryRows.length > 1) {
+        // Draw connecting lines
+        var path = document.createElementNS(svgNS, "path");
+        var d = "";
+        for (var i = 0; i < categoryRows.length; i++) {
+          var xp = xpix(categoryRows[i].x, b, W);
+          var yp = ypix(categoryRows[i].y, b, H);
+          d += (i === 0 ? "M" : "L") + xp + "," + yp;
+        }
+        path.setAttribute("d", d);
+        path.setAttribute("fill", "none");
+        path.setAttribute("stroke", colorFor(k / Math.max(1, ls.length - 1), C.colorscale, C.opacity * 0.7));
+        path.setAttribute("stroke-width", Math.max(1, C.pointSize * 0.3));
+        svg.appendChild(path);
+      }
+      
+      // Draw points
+      for (var i = 0; i < categoryRows.length; i++) {
+        var r = categoryRows[i];
+        var xp = xpix(r.x, b, W);
+        var yp = ypix(r.y, b, H);
+        var v = (r.x - b.xmin) / (b.xmax - b.xmin + 1e-9);
+        
+        var circle = document.createElementNS(svgNS, "circle");
+        circle.setAttribute("cx", xp);
+        circle.setAttribute("cy", yp);
+        circle.setAttribute("r", C.pointSize);
+        circle.setAttribute("fill", colorFor(v, C.colorscale, C.opacity));
+        svg.appendChild(circle);
+      }
+    }
+  }
+  
+  function exportHistToSVG(svg, rows, b, W, H, C, svgNS) {
+    var vals = rows.map(r => r.x);
+    var minVal = Math.min(...vals);
+    var maxVal = Math.max(...vals);
+    var binCount = Math.ceil(Math.sqrt(vals.length));
+    var binWidth = (maxVal - minVal) / binCount;
+    var bins = new Array(binCount).fill(0);
+    
+    vals.forEach(v => {
+      var binIdx = Math.floor((v - minVal) / binWidth);
+      if (binIdx >= binCount) binIdx = binCount - 1;
+      bins[binIdx]++;
+    });
+    
+    var maxCount = Math.max(...bins);
+    var barWidth = W / binCount;
+    
+    for (var i = 0; i < bins.length; i++) {
+      var barHeight = (bins[i] / maxCount) * H * 0.8;
+      var rect = document.createElementNS(svgNS, "rect");
+      rect.setAttribute("x", i * barWidth);
+      rect.setAttribute("y", H - barHeight);
+      rect.setAttribute("width", barWidth - 1);
+      rect.setAttribute("height", barHeight);
+      rect.setAttribute("fill", colorFor(i / (bins.length - 1), C.colorscale, C.opacity));
+      svg.appendChild(rect);
+    }
+  }
+  
+  function addAxesToSVG(svg, b, W, H, bg, C, svgNS) {
+    var axisColor = bg === "white" ? "#666" : "#ccc";
+    
+    // X axis
+    var xAxis = document.createElementNS(svgNS, "line");
+    xAxis.setAttribute("x1", "0");
+    xAxis.setAttribute("y1", H);
+    xAxis.setAttribute("x2", W);
+    xAxis.setAttribute("y2", H);
+    xAxis.setAttribute("stroke", axisColor);
+    xAxis.setAttribute("stroke-width", "1");
+    svg.appendChild(xAxis);
+    
+    // Y axis
+    var yAxis = document.createElementNS(svgNS, "line");
+    yAxis.setAttribute("x1", "0");
+    yAxis.setAttribute("y1", "0");
+    yAxis.setAttribute("x2", "0");
+    yAxis.setAttribute("y2", H);
+    yAxis.setAttribute("stroke", axisColor);
+    yAxis.setAttribute("stroke-width", "1");
+    svg.appendChild(yAxis);
+  }
+
   // ---------- Debug function for slider states ----------
   window.debugSliderStates = function() {
     var plotType = $("#plotType").value;
@@ -1980,6 +2395,9 @@
       link.download = `viz-${C.plotType}-${Date.now()}.png`;
       link.href = canvas.toDataURL("image/png");
       link.click();
+    });
+    $("#exportSVG").addEventListener("click", () => {
+      exportToSVG();
     });
     $("#exportHTML").addEventListener("click", () => {
       var C = cfg();
